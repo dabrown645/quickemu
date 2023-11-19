@@ -31,7 +31,7 @@ function ignore_msrs_alert() {
             echo
             echo "             If you are unable to run macOS or Windows VMs then run the above 👆"
             echo "             This will enable ignoring of unhandled MSRs until you reboot the host."
-      echo "             You can make this change permanent by running: 'quickemu --ignore-msrs-always'"
+            echo "             You can make this change permanent by running: 'quickemu --ignore-msrs-always'"
         fi
     fi
 }
@@ -614,7 +614,7 @@ function vm_boot() {
         off|metadata|falloc|full) true;;
         *)
             echo "ERROR! ${preallocation} is an unsupported disk preallocation option."
-          exit 1;;
+                    exit 1;;
         esac
 
         # https://blog.programster.org/qcow2-performance
@@ -850,15 +850,15 @@ function vm_boot() {
 
     # ALLOW REMOTE ACCESS TO SPICE OVER LAN RATHER THAN JUST LOCALHOST
     if [ -z "${ACCESS}" ]; then
-      SPICE_ADDR="127.0.0.1"
+            SPICE_ADDR="127.0.0.1"
     else
-      if [ "${ACCESS}" == "remote" ]; then
+            if [ "${ACCESS}" == "remote" ]; then
         SPICE_ADDR=""
-      elif [ "${ACCESS}" == "local" ]; then
+            elif [ "${ACCESS}" == "local" ]; then
         SPICE_ADDR="127.0.0.1"
-      else
+            else
         SPICE_ADDR="${ACCESS}"
-      fi
+            fi
     fi
 
         if [ -z "${SPICE_PORT}" ]; then
@@ -896,18 +896,18 @@ function vm_boot() {
         esac
     fi
 
-  if [ "${guest_os}" != "windows" ] && [ -n "${PUBLIC}" ]; then
+    if [ "${guest_os}" != "windows" ] && [ -n "${PUBLIC}" ]; then
     echo -n " - 9P:       On guest: "
     if [ "${guest_os}" == "linux" ]; then
-      echo "sudo mount -t 9p -o trans=virtio,version=9p2000.L,msize=104857600 ${PUBLIC_TAG} ~/$(basename "${PUBLIC}")"
+            echo "sudo mount -t 9p -o trans=virtio,version=9p2000.L,msize=104857600 ${PUBLIC_TAG} ~/$(basename "${PUBLIC}")"
     elif [ "${guest_os}" == "macos" ]; then
-      # PUBLICSHARE needs to be world writeable for seamless integration with
-      # macOS. Test if it is world writeable, and prompt what to do if not.
-      echo "sudo mount_9p ${PUBLIC_TAG}"
-      if [ "${PUBLIC_PERMS}" != "drwxrwxrwx" ]; then
+            # PUBLICSHARE needs to be world writeable for seamless integration with
+            # macOS. Test if it is world writeable, and prompt what to do if not.
+            echo "sudo mount_9p ${PUBLIC_TAG}"
+            if [ "${PUBLIC_PERMS}" != "drwxrwxrwx" ]; then
         echo " - 9P:       On host:  chmod 777 ${PUBLIC}"
         echo "             Required for macOS integration 👆"
-      fi
+            fi
     fi
     fi
 
@@ -1707,7 +1707,7 @@ else
             EXTRA_ARGS="${2}"
             shift;
             shift;;
-          -sound-card|--sound-card)
+        -sound-card|--sound-card)
             SOUND_CARD="${2}"
             shift;
             shift;;
