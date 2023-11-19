@@ -31,7 +31,7 @@ function ignore_msrs_alert() {
             echo
             echo "             If you are unable to run macOS or Windows VMs then run the above 👆"
             echo "             This will enable ignoring of unhandled MSRs until you reboot the host."
-            echo "             You can make this change permenant by running: 'quickemu --ignore-msrs-always'"
+      echo "             You can make this change permanent by running: 'quickemu --ignore-msrs-always'"
         fi
     fi
 }
@@ -235,6 +235,7 @@ function vm_boot() {
     local MAC_DISK_DEV="${MAC_DISK_DEV:-ide-hd,bus=ahci.2}"
     local NET_DEVICE="${NET_DEVICE:-virtio-net}"
     local OSK=""
+  local SOUND=""
     local SMM="${SMM:-off}"
     local USB_HOST_PASSTHROUGH_CONTROLLER="qemu-xhci"
     local VGA=""
@@ -253,7 +254,7 @@ function vm_boot() {
     echo "Quickemu ${VERSION} using ${QEMU} v${QEMU_VER_LONG}"
     echo " - Host:     ${LSB_DESCRIPTION} running ${KERNEL_NAME} ${KERNEL_VER} ${KERNEL_NODE}"
 
-    HOST_CPU_CORES=$(nproc --all)
+  HOST_CPU_CORES=$(nproc)
     HOST_CPU_MODEL=$(lscpu | grep '^Model name:' | cut -d':' -f2 | sed 's/  //g')
     HOST_CPU_SOCKETS=$(lscpu | grep -E 'Socket' | cut -d':' -f2 | sed 's/ //g')
     HOST_CPU_VENDOR=$(lscpu | grep -E 'Vendor' | cut -d':' -f2 | sed 's/ //g')
@@ -487,11 +488,13 @@ function vm_boot() {
         if [ "${guest_os}" == "freedos" ] ; then
             # fix for #382
             SMM="on"
+        SOUND_CARD="sb16"
         fi
 
         if [[ "${guest_os}" == *"solaris" ]]; then
             MACHINE_TYPE="pc"
             USB_CONTROLLER="xhci"
+        SOUND_CARD="ac97"
         fi
 
         if [ -z "${disk_size}" ]; then
@@ -611,8 +614,7 @@ function vm_boot() {
         off|metadata|falloc|full) true;;
         *)
             echo "ERROR! ${preallocation} is an unsupported disk preallocation option."
-            exit 1
-            ;;
+          exit 1;;
         esac
 
         # https://blog.programster.org/qcow2-performance
@@ -793,6 +795,16 @@ function vm_boot() {
     # Add fullscreen options
     VIDEO="${VGA} ${VIDEO} ${FULLSCREEN}"
 
+  # Build the sound hardware configuration
+  if [ "${SOUND_CARD}" == "intel-hda" ]; then
+    SOUND="-device intel-hda -device hda-duplex,audiodev=audio0"
+  elif [ "${SOUND_CARD}" == "ac97" ] || [ "${SOUND_CARD}" == "es1370" ] || [ "${SOUND_CARD}" == "sb16" ]; then
+    SOUND="-device ${SOUND_CARD},audiodev=audio0"
+  elif [ "${SOUND_CARD}" == "none" ]; then
+    SOUND=""
+  fi
+  echo " - Sound:    ${SOUND_CARD}"
+
     # Set the hostname of the VM
     local NET="user,hostname=${VMNAME}"
 
@@ -836,6 +848,19 @@ function vm_boot() {
             SPICE_PORT=$(get_port 5930 9)
         fi
 
+    # ALLOW REMOTE ACCESS TO SPICE OVER LAN RATHER THAN JUST LOCALHOST
+    if [ -z "${ACCESS}" ]; then
+      SPICE_ADDR="127.0.0.1"
+    else
+      if [ "${ACCESS}" == "remote" ]; then
+        SPICE_ADDR=""
+      elif [ "${ACCESS}" == "local" ]; then
+        SPICE_ADDR="127.0.0.1"
+      else
+        SPICE_ADDR="${ACCESS}"
+      fi
+    fi
+
         if [ -z "${SPICE_PORT}" ]; then
             echo " - SPICE:    All SPICE ports have been exhausted."
             if [ "${OUTPUT}" == "none" ] || [ "${OUTPUT}" == "spice" ] || [ "${OUTPUT}" == "spice-app" ]; then
@@ -852,7 +877,7 @@ function vm_boot() {
                     echo -n " --spice-shared-dir ${PUBLIC}"
                 fi
                 echo "${FULLSPICY}"
-                SPICE="${SPICE},port=${SPICE_PORT},addr=127.0.0.1"
+        SPICE="${SPICE},port=${SPICE_PORT},addr=${SPICE_ADDR}"
             fi
         fi
     fi
@@ -871,41 +896,23 @@ function vm_boot() {
         esac
     fi
 
-    # ALLOW REMOTE ACCESS TO SPICE OVER LAN RATHER THAN JUST LOCALHOST
-    if [ -z "${ACCESS}" ]; then
-      SPICE_ADDR="127.0.0.1"
-    else
-      if [ "${ACCESS}" == "remote" ]; then
-        SPICE_ADDR=""
-      elif [ "${ACCESS}" == "local" ]; then
-        SPICE_ADDR="127.0.0.1"
-      else
-        SPICE_ADDR="${ACCESS}"
+  if [ "${guest_os}" != "windows" ] && [ -n "${PUBLIC}" ]; then
+    echo -n " - 9P:       On guest: "
+    if [ "${guest_os}" == "linux" ]; then
+      echo "sudo mount -t 9p -o trans=virtio,version=9p2000.L,msize=104857600 ${PUBLIC_TAG} ~/$(basename "${PUBLIC}")"
+    elif [ "${guest_os}" == "macos" ]; then
+      # PUBLICSHARE needs to be world writeable for seamless integration with
+      # macOS. Test if it is world writeable, and prompt what to do if not.
+      echo "sudo mount_9p ${PUBLIC_TAG}"
+      if [ "${PUBLIC_PERMS}" != "drwxrwxrwx" ]; then
+        echo " - 9P:       On host:  chmod 777 ${PUBLIC}"
+        echo "             Required for macOS integration 👆"
       fi
     fi
-
-    if [ -z "${SPICE_PORT}" ]; then
-      echo " - SPICE:    All SPICE ports have been exhausted."
-      if [ "${OUTPUT}" == "none" ] || [ "${OUTPUT}" == "spice" ] || [ "${OUTPUT}" == "spice-app" ]; then
-        echo "             ERROR! Requested SPICE display, but no SPICE ports are free."
-        exit 1
-      fi
-    else
-      if [ "${OUTPUT}" == "spice-app" ]; then
-        echo " - SPICE:    Enabled"
-      else
-        echo "spice,${SPICE_PORT}" >> "${VMDIR}/${VMNAME}.ports"
-        echo -n " - SPICE:    On host:  spicy --title \"${VMNAME}\" --port ${SPICE_PORT}"
-        if [ "${guest_os}" != "macos" ] && [ -n "${PUBLIC}" ]; then
-          echo -n " --spice-shared-dir ${PUBLIC}"
-        fi
-        echo "${FULLSPICY}"
-        SPICE="${SPICE},port=${SPICE_PORT},addr=${SPICE_ADDR}"
-      fi
     fi
 
     # If smbd is available and ~/Public is present export it to the guest via samba
-    if [[ -e "/usr/sbin/smbd" && -n ${PUBLIC} ]]; then
+  if [[ -x "$(command -v smbd)" && -n ${PUBLIC} ]]; then
         NET="${NET},smb=${PUBLIC}"
         echo " - smbd:     On guest: smb://10.0.2.4/qemu"
     fi
@@ -939,7 +946,7 @@ function vm_boot() {
         -m ${RAM_VM} ${BALLOON}
         ${VIDEO} -display ${DISPLAY_RENDER}
         -audiodev ${AUDIO_DEV}
-        -device intel-hda -device hda-duplex,audiodev=audio0
+         ${SOUND}
         -rtc base=localtime,clock=host,driftfix=slew)
 
     # Only enable SPICE is using SPICE display
@@ -1032,7 +1039,7 @@ function vm_boot() {
     fi
 
     if [ "${network}" == "none" ]; then
-        # Disbale all networking
+    # Disable all networking
         echo " - Network:  Disabled"
         args+=(-nic none)
     elif [ "${network}" == "restrict" ]; then
@@ -1349,7 +1356,7 @@ function usage() {
     echo "  --viewer <viewer>                 : Choose an alternative viewer. @Options: 'spicy' (default), 'remote-viewer', 'none'"
     echo "  --ssh-port <port>                 : Set ssh-port manually"
     echo "  --spice-port <port>               : Set spice-port manually"
-    echo "  --public-dir <path>               : expose share directory. @Options: '' (default: xdg-user-dir PUBLICSHARE), '<directory>', 'none'"
+  echo "  --public-dir <path>               : Expose share directory. @Options: '' (default: xdg-user-dir PUBLICSHARE), '<directory>', 'none'"
     echo "  --monitor <type>                  : Set monitor connection type. @Options: 'socket' (default), 'telnet', 'none'"
     echo "  --monitor-telnet-host <ip/host>   : Set telnet host for monitor. (default: 'localhost')"
     echo "  --monitor-telnet-port <port>      : Set telnet port for monitor. (default: '4440')"
@@ -1361,6 +1368,7 @@ function usage() {
     echo "  --keyboard_layout <layout>        : Set keyboard layout."
     echo "  --mouse <type>                    : Set mouse. @Options: 'tablet' (default), 'ps2', 'usb', 'virtio'"
     echo "  --usb-controller <type>           : Set usb-controller. @Options: 'ehci' (default), 'xhci', 'none'"
+  echo "  --sound-card <type>               : Set sound card. @Options: 'intel-hda' (default), 'ac97', 'es1370', 'sb16', 'none'"
     echo "  --extra_args <arguments>          : Pass additional arguments to qemu"
     echo "  --version                         : Print version"
     exit 1
@@ -1371,6 +1379,13 @@ function display_param_check() {
         echo "ERROR! Requested output '${OUTPUT}' is not recognised."
         exit 1
     fi
+}
+
+function sound_card_param_check() {
+  if [ "${SOUND_CARD}" != "intel-hda" ] && [ "${SOUND_CARD}" != "ac97" ] && [ "${SOUND_CARD}" != "es1370" ] && [ "${SOUND_CARD}" != "sb16" ] && [ "${SOUND_CARD}" != "none" ]; then
+    echo "ERROR! Requested sound card '${SOUND_CARD}' is not recognised."
+    exit 1
+  fi
 }
 
 function viewer_param_check() {
@@ -1493,6 +1508,8 @@ keyboard="usb"
 keyboard_layout="en-us"
 # options: ps2, usb, tablet, virtio
 mouse="tablet"
+# options: intel-hda, ac97, es1370, sb16, none
+sound_card="intel-hda"
 
 ACCESS=""
 BRAILLE=""
@@ -1532,6 +1549,7 @@ KEYBOARD_LAYOUT=""
 MOUSE=""
 USB_CONTROLLER=""
 EXTRA_ARGS=""
+SOUND_CARD=""
 
 # shellcheck disable=SC2155
 readonly LAUNCHER=$(basename "${0}")
@@ -1689,6 +1707,10 @@ else
             EXTRA_ARGS="${2}"
             shift;
             shift;;
+          -sound-card|--sound-card)
+            SOUND_CARD="${2}"
+            shift;
+            shift;;
         -version|--version)
             echo "${VERSION}"
             exit;;
@@ -1791,6 +1813,11 @@ if [ -n "${VM}" ] && [ -e "${VM}" ]; then
         exit 1
     fi
 
+  if [ -z "${SOUND_CARD}" ]; then
+    SOUND_CARD="${sound_card}"
+  fi
+  sound_card_param_check
+
     # Check if vm is already run
     VM_PID=0
     VM_UP=0
@@ -1868,4 +1895,4 @@ fi
 
 [ -n "${MONITOR_CMD}" ] && monitor_send_cmd "${MONITOR_CMD}"
 
-# vim:tabstop=4:shiftwidth=4:expandtab
+# vim:tabstop=2:shiftwidth=2:expandtab
